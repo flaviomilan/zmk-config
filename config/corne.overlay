@@ -1,0 +1,198 @@
+#include <dt-bindings/zmk/matrix_transform.h>
+#include <dt-bindings/led/led.h>
+
+&pinctrl {
+    spi3_default: spi3_default {
+        group1 {
+            psels = <NRF_PSEL(SPIM_MOSI, 0, 6)>;
+        };
+    };
+
+    spi3_sleep: spi3_sleep {
+        group1 {
+            psels = <NRF_PSEL(SPIM_MOSI, 0, 6)>;
+            low-power-enable;
+        };
+    };
+
+    i2c0_default: i2c0_default {
+        group1 {
+            psels = <NRF_PSEL(TWIM_SDA, 0, 17)>,
+                    <NRF_PSEL(TWIM_SCL, 0, 20)>;
+        };
+    };
+
+    i2c0_sleep: i2c0_sleep {
+        group1 {
+            psels = <NRF_PSEL(TWIM_SDA, 0, 17)>,
+                    <NRF_PSEL(TWIM_SCL, 0, 20)>;
+            low-power-enable;
+        };
+    };
+
+    pwm0_default: pwm0_default {
+        group1 {
+            psels = <NRF_PSEL(PWM_OUT0, 0, 9)>;
+        };
+    };
+
+    pwm0_sleep: pwm0_sleep {
+        group1 {
+            psels = <NRF_PSEL(PWM_OUT0, 0, 9)>;
+            low-power-enable;
+        };
+    };
+
+    // Configurações UART removidas
+};
+
+&spi3 {
+    compatible = "nordic,nrf-spim";
+    status = "okay";
+
+    pinctrl-0 = <&spi3_default>;
+    pinctrl-1 = <&spi3_sleep>;
+    pinctrl-names = "default", "sleep";
+
+    led_strip: ws2812@0 {
+        compatible = "worldsemi,ws2812-spi";
+        label = "WS2812";
+
+        /* SPI */
+        reg = <0>; /* ignorado, mas necessário para associações SPI */
+        spi-max-frequency = <4000000>;
+
+        /* WS2812 */
+        chain-length = <27>; /* 27 LEDs para o Corne, 6 por linha + 3 no meio */
+        spi-one-frame = <0x70>;
+        spi-zero-frame = <0x40>;
+        color-mapping = <LED_COLOR_ID_GREEN LED_COLOR_ID_RED LED_COLOR_ID_BLUE>;
+    };
+};
+
+&i2c0 {
+    compatible = "nordic,nrf-twi";
+    status = "okay";
+    pinctrl-0 = <&i2c0_default>;
+    pinctrl-1 = <&i2c0_sleep>;
+    pinctrl-names = "default", "sleep";
+    clock-frequency = <400000>;
+
+    oled: ssd1306@3c {
+        compatible = "solomon,ssd1306fb";
+        reg = <0x3c>;
+        label = "DISPLAY";
+        width = <128>;
+        height = <32>;
+        segment-offset = <0>;
+        page-offset = <0>;
+        display-offset = <0>;
+        multiplex-ratio = <31>;
+        segment-remap;
+        com-invdir;
+        com-sequential;
+        prechargep = <0x22>;
+        /* Configurações otimizadas para OLED 0.91" */
+        contrast = <128>;  /* Contraste ajustado para melhor visibilidade */
+        inversion-on;      /* Melhora visibilidade em OLEDs pequenos */
+    };
+};
+
+/ {
+    chosen {
+        zmk,underglow = &led_strip;
+        zmk,battery = &vbatt;
+        zmk,display = &oled;
+        zmk,backlight = &backlight;
+        zephyr,entropy = &rng;
+        zephyr,flash = &flash0;
+    };
+
+    backlight: pwm_leds {
+        compatible = "pwm-leds";
+        pwm_led_0 {
+            pwms = <&pwm0 9 10000 PWM_POLARITY_NORMAL>;
+            label = "Backlight LED 0";
+        };
+    };
+
+    vbatt: vbatt {
+        compatible = "zmk,battery-nrf-vddh";
+        label = "VBATT";
+        /* Otimizações para leitura de bateria mais precisa */
+        io-channels = <&adc 7>;
+        output-ohms = <2000000>;
+        full-ohms = <(2000000 + 806000)>;
+    };
+    
+    /* Configurações para prevenir bouncing específico de switches de perfil baixo */
+    kscan0: kscan {
+        compatible = "zmk,kscan-gpio-matrix";
+        label = "KSCAN";
+        diode-direction = "col2row";
+        debounce-period = <10>;       /* Ajustado para perfil baixo */
+        debounce-press-ms = <3>;      /* Valores específicos para teclado low profile */
+        debounce-release-ms = <3>;    /* Valores específicos para teclado low profile */
+        wait-time-ms = <12>;          /* Ajustado para melhor responsividade */
+    };
+};
+
+/* Configurações USB otimizadas */
+&usbd {
+    status = "okay";
+    cdc_acm_uart: cdc_acm_uart {
+        compatible = "zephyr,cdc-acm-uart";
+    };
+};
+
+/* Melhorar estabilidade do bluetooth */
+&bt_hci_sdc {
+    status = "okay";
+    compatible = "nordic,nrf-sdc-spi";
+    bt-hci-sdc {
+        compatible = "zephyr,bt-hci-sdc";
+        local-mac-address = [00 00 00 00 00 00];
+    };
+};
+
+/* Configurações de BLE otimizadas */
+&bt {
+    status = "okay";
+    high-pwr-supervision = <1>;
+    zephyr,sdc-llpm-support;
+    
+    /* Adicionadas configurações para melhor conectividade */
+    compatible = "nordic,nrf-radio";
+    tx-high-power-mode;
+    conn-tx-max-power = <9>;  /* 9dBm para melhor alcance */
+    bt-rx-stats;
+};
+
+/* Configurações para otimizar economia de energia */
+&cpu0 {
+    clock-frequency = <64000000>;
+    compatible = "arm,cortex-m4f";
+    /* Ajustes de power management */
+    low-power-wake = "PM_ACTIVE";
+    wakeup-source;
+};
+
+/* Suporte a PWM para controle refinado do backlight */
+&pwm0 {
+    status = "okay";
+    pinctrl-0 = <&pwm0_default>;
+    pinctrl-1 = <&pwm0_sleep>;
+    pinctrl-names = "default", "sleep";
+};
+
+/* Configurações do flash para armazenamento */
+&flash0 {
+    /* Ajuste para otimização do flash storage */
+    erase-block-size = <4096>;
+    write-block-size = <4>;
+};
+
+/* Configurações do RNG para geração de números aleatórios (segurança bluetooth) */
+&rng {
+    status = "okay";
+};
